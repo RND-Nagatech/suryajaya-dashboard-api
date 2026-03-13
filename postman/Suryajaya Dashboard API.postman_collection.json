@@ -1,0 +1,242 @@
+{
+  "info": {
+    "_postman_id": "5f9b7d4e-b8c2-4f4a-9d0d-4e0b5b6e9a11",
+    "name": "Suryajaya Dashboard API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Dashboard Overview",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/overview",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "overview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Grosir Stocks",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/grosir/stocks?limit=10&page=1",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "grosir",
+            "stocks"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Transfers Pending",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/grosir-to-pusat/transfers?status=pending&limit=10&page=1",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "grosir-to-pusat",
+            "transfers"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "pending"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Transfers Received",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/grosir-to-pusat/transfers?status=received&limit=10&page=1",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "grosir-to-pusat",
+            "transfers"
+          ],
+          "query": [
+            {
+              "key": "status",
+              "value": "received"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Keep Stocks",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/pusat/keep-stocks?limit=10&page=1",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "pusat",
+            "keep-stocks"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "KOM Stocks",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/pusat/kom-stocks?limit=10&page=1",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "pusat",
+            "kom-stocks"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "BRC Stocks",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/pusat/brc-stocks?limit=10&page=1",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "pusat",
+            "brc-stocks"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Cabang Stocks",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/dashboard/pusat/cabang-stocks",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "dashboard",
+            "pusat",
+            "cabang-stocks"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3301/api/v1"
+    }
+  ]
+}
