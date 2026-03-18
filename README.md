@@ -194,6 +194,30 @@ Output:
 - total berat
 - rekap per `kode_toko`
 
+### 9. Aging stock cabang
+
+- `GET /api/v1/dashboard/cabang/aging-stocks`
+
+Query optional:
+
+- `dbs` optional; kalau tidak dikirim, endpoint akan ambil semua database cabang yang tersedia selain yang ada di exclude list
+
+Aturan:
+
+- source data dari collection `tm_barang` di database cabang
+- identitas grup cabang ditampilkan sebagai `kode_cabang`, dengan nilai diambil dari `tp_system.kode_toko`
+- default source adalah semua database cabang non-excluded
+- filter utama `stock_on_hand = 1`
+- `umur_barang` dihitung dari `tgl_last_beli` sampai tanggal request diproses
+- hasil digrouping by `tp_system.kode_toko`
+
+Output:
+
+- `as_of_date`
+- `selected_databases`
+- summary per `kode_cabang`
+- `items` berisi field barang, dengan `kode_toko` item ditampilkan sebagai `kode_baki`, plus `umur_barang`
+
 ## Cara jalan
 
 ### 1. Install dependency

@@ -27,7 +27,12 @@ class MongoConnections {
 
     return {
       grosirDb: this.grosirDb,
-      pusatDb: this.pusatDb
+      pusatDb: this.pusatDb,
+      getBranchDb: (dbName) => this.pusatClient.db(dbName),
+      listBranchDbNames: async () => {
+        const result = await this.pusatClient.db().admin().listDatabases();
+        return result.databases.map((db) => db.name);
+      }
     };
   }
 

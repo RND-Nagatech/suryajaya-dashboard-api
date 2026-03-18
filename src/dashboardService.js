@@ -1,13 +1,18 @@
 const {
   round3,
   buildStringDateMatch,
-  buildJsDateMatch
+  buildJsDateMatch,
+  calculateAgeDays,
+  formatDateToYmd,
+  resolveBranchDatabases
 } = require("./utils");
 
 class DashboardService {
   constructor(dbs, config) {
     this.grosirDb = dbs.grosirDb;
     this.pusatDb = dbs.pusatDb;
+    this.getBranchDb = dbs.getBranchDb;
+    this.listBranchDbNames = dbs.listBranchDbNames;
     this.config = config;
   }
 
@@ -25,6 +30,22 @@ class DashboardService {
 
   pusatBarangCollection() {
     return this.pusatDb.collection(this.config.collections.pusatBarang);
+  }
+
+  branchBarangCollection(dbName) {
+    if (!this.getBranchDb) {
+      throw new Error("Branch database accessor is not initialized.");
+    }
+
+    return this.getBranchDb(dbName).collection(this.config.collections.pusatBarang);
+  }
+
+  branchSystemCollection(dbName) {
+    if (!this.getBranchDb) {
+      throw new Error("Branch database accessor is not initialized.");
+    }
+
+    return this.getBranchDb(dbName).collection(this.config.collections.branchSystem);
   }
 
   async getOverview(query) {
@@ -576,6 +597,98 @@ class DashboardService {
         total_stock_on_hand: data.reduce((acc, item) => acc + item.total_stock_on_hand, 0),
         total_berat: round3(data.reduce((acc, item) => acc + item.total_berat, 0)),
         groups: data
+      }
+    };
+  }
+
+  async getCabangAgingStocks(query) {
+    const asOfDate = formatDateToYmd();
+    const availableDbs = this.listBranchDbNames ? await this.listBranchDbNames() : [];
+    const selectedDatabases = resolveBranchDatabases({
+      requestedDbs: query.dbs,
+      defaultDbs: [],
+      availableDbs,
+      excludedDbs: this.config.excludedBranchDbNames
+    });
+
+    const branches = await Promise.all(
+      selectedDatabases.map(async (dbName) => {
+        const barangCollection = this.branchBarangCollection(dbName);
+        const systemCollection = this.branchSystemCollection(dbName);
+        const [docs, systemDoc] = await Promise.all([
+          barangCollection.find(
+            { stock_on_hand: 1 },
+            {
+              projection: {
+                _id: 0,
+                stock_on_hand: 1,
+                kode_barcode: 1,
+                kode_gudang: 1,
+                kode_group: 1,
+                kode_toko: 1,
+                kode_dept: 1,
+                tgl_last_beli: 1,
+                berat: 1,
+                berat_asli: 1,
+                berat_bruto: 1
+              }
+            }
+          ).toArray(),
+          systemCollection.findOne(
+            {},
+            {
+              projection: {
+                _id: 0,
+                kode_toko: 1
+              }
+            }
+          )
+        ]);
+        const branchKodeCabang = String(systemDoc?.kode_toko || "").trim() || dbName;
+
+        const enrichedDocs = docs
+          .map((item) => ({
+            stock_on_hand: item.stock_on_hand || 0,
+            kode_barcode: item.kode_barcode || null,
+            kode_gudang: item.kode_gudang || null,
+            kode_group: item.kode_group || null,
+            kode_baki: item.kode_toko || null,
+            kode_dept: item.kode_dept || null,
+            tgl_last_beli: item.tgl_last_beli || null,
+            berat: item.berat || 0,
+            berat_asli: item.berat_asli || 0,
+            berat_bruto: item.berat_bruto || 0,
+            umur_barang: calculateAgeDays(item.tgl_last_beli, asOfDate)
+          }))
+          .sort((left, right) => {
+            const leftAge = left.umur_barang ?? -1;
+            const rightAge = right.umur_barang ?? -1;
+
+            if (rightAge !== leftAge) {
+              return rightAge - leftAge;
+            }
+
+            return String(left.kode_barcode || "").localeCompare(String(right.kode_barcode || ""));
+          });
+
+        return {
+          kode_cabang: branchKodeCabang,
+          as_of_date: asOfDate,
+          total_doc: enrichedDocs.length,
+          total_stock_on_hand: enrichedDocs.reduce((acc, item) => acc + (item.stock_on_hand || 0), 0),
+          total_berat: round3(enrichedDocs.reduce((acc, item) => acc + (item.berat || 0), 0)),
+          total_berat_asli: round3(enrichedDocs.reduce((acc, item) => acc + (item.berat_asli || 0), 0)),
+          total_berat_bruto: round3(enrichedDocs.reduce((acc, item) => acc + (item.berat_bruto || 0), 0)),
+          items: enrichedDocs
+        };
+      })
+    );
+
+    return {
+      data: {
+        as_of_date: asOfDate,
+        selected_databases: selectedDatabases,
+        branches
       }
     };
   }

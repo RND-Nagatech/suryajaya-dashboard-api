@@ -70,6 +70,14 @@ function createRoutes(service) {
     }
   });
 
+  router.get("/dashboard/cabang/aging-stocks", async (req, res, next) => {
+    try {
+      res.json(await service.getCabangAgingStocks(req.query));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }
 
