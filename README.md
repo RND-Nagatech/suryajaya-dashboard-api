@@ -7,6 +7,61 @@ Backend terpisah untuk dashboard Suryajaya. Project ini hanya `read-only` dan tu
 
 Frontend cukup `GET` ke API ini, tanpa query langsung ke Mongo. Semua endpoint dashboard mengembalikan data summary, bukan list item detail.
 
+## Frontend command center
+
+Repo ini sekarang juga menyiapkan frontend dashboard TV-first berbasis React + Vite di folder [frontend](/Users/ngtc/Work/ai/suryajaya-dashboard-api/frontend).
+
+### Struktur frontend
+
+```text
+frontend/
+  public/
+  src/
+    components/
+    hooks/
+    lib/
+```
+
+### Menjalankan frontend
+
+1. Install dependency frontend
+
+```bash
+cd frontend
+npm install
+```
+
+2. Buat file env dari contoh
+
+```bash
+cp .env.example .env
+```
+
+3. Jalankan dev server
+
+```bash
+npm run dev
+```
+
+Atau dari root project:
+
+```bash
+npm run frontend:dev
+```
+
+### Env frontend
+
+```env
+VITE_API_BASE_URL=http://localhost:3301/api/v1
+VITE_REFRESH_INTERVAL_MS=45000
+```
+
+### Asset visual
+
+- Letakkan background isometrik custom ke `frontend/public/`
+- Nama file yang otomatis dideteksi: `gemini_generate.webp`, `gemini_generate.png`, `gemini_generate.jpg`, atau `gemini_generate.jpeg`
+- Jika asset belum ada, frontend akan memakai fallback visual agar layout tetap jalan
+
 ## Sumber data
 
 API ini membaca collection berikut:

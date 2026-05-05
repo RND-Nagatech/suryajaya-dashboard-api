@@ -32,20 +32,8 @@ class DashboardService {
     return this.pusatDb.collection(this.config.collections.pusatBarang);
   }
 
-  branchBarangCollection(dbName) {
-    if (!this.getBranchDb) {
-      throw new Error("Branch database accessor is not initialized.");
-    }
-
-    return this.getBranchDb(dbName).collection(this.config.collections.pusatBarang);
-  }
-
-  branchSystemCollection(dbName) {
-    if (!this.getBranchDb) {
-      throw new Error("Branch database accessor is not initialized.");
-    }
-
-    return this.getBranchDb(dbName).collection(this.config.collections.branchSystem);
+  shouldIncludeDetails(query) {
+    return String(query.include_details || "true").toLowerCase() !== "false";
   }
 
   async getOverview(query) {
@@ -250,10 +238,18 @@ class DashboardService {
   }
 
   async getGrosirStocks(query) {
-    const match = {};
+    const excludedLokasi = ["PUSAT", "HANCUR", "REV", "DEFAULT"];
+    const match = {
+      $and: [
+        {
+          kode_lokasi: { $nin: excludedLokasi }
+        }
+      ]
+    };
+    const includeDetails = this.shouldIncludeDetails(query);
 
     if (query.kode_lokasi) {
-      match.kode_lokasi = query.kode_lokasi;
+      match.$and.push({ kode_lokasi: query.kode_lokasi });
     }
 
     if (query.kode_jenis) {
@@ -267,22 +263,23 @@ class DashboardService {
       ];
     }
 
-    const [summary, perLokasi] = await Promise.all([
-      this.grosirStockCollection().aggregate([
-        { $match: match },
-        {
-          $group: {
-            _id: null,
-            total_row: { $sum: 1 },
-            total_qty: { $sum: { $ifNull: ["$total_qty", 0] } },
-            total_bruto: { $sum: { $ifNull: ["$total_bruto", 0] } },
-            total_gross: { $sum: { $ifNull: ["$total_gross", 0] } },
-            total_netto: { $sum: { $ifNull: ["$total_netto", 0] } },
-            total_berat_atribut: { $sum: { $ifNull: ["$total_berat_atribut", 0] } }
-          }
+    const summaryPromise = this.grosirStockCollection().aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          total_row: { $sum: 1 },
+          total_qty: { $sum: { $ifNull: ["$total_qty", 0] } },
+          total_bruto: { $sum: { $ifNull: ["$total_bruto", 0] } },
+          total_gross: { $sum: { $ifNull: ["$total_gross", 0] } },
+          total_netto: { $sum: { $ifNull: ["$total_netto", 0] } },
+          total_berat_atribut: { $sum: { $ifNull: ["$total_berat_atribut", 0] } }
         }
-      ]).toArray(),
-      this.grosirStockCollection().aggregate([
+      }
+    ]).toArray();
+
+    const perLokasiPromise = includeDetails
+      ? this.grosirStockCollection().aggregate([
         { $match: match },
         {
           $group: {
@@ -305,6 +302,11 @@ class DashboardService {
         },
         { $sort: { total_netto: -1, kode_lokasi: 1 } }
       ]).toArray()
+      : Promise.resolve([]);
+
+    const [summary, perLokasi] = await Promise.all([
+      summaryPromise,
+      perLokasiPromise
     ]);
 
     return {
@@ -322,6 +324,7 @@ class DashboardService {
 
   async getTransfers(query) {
     const match = {};
+    const includeDetails = this.shouldIncludeDetails(query);
     const dateMatch = buildStringDateMatch(query.start_date, query.end_date);
 
     if (dateMatch) {
@@ -351,8 +354,7 @@ class DashboardService {
       ];
     }
 
-    const [summary, perTanggal] = await Promise.all([
-      this.grosirTransferCollection().aggregate([
+    const summaryPromise = this.grosirTransferCollection().aggregate([
         { $match: match },
         {
           $addFields: {
@@ -380,8 +382,10 @@ class DashboardService {
             last_tanggal_output: { $max: "$tanggal_output" }
           }
         }
-      ]).toArray(),
-      this.grosirTransferCollection().aggregate([
+      ]).toArray();
+
+    const perTanggalPromise = includeDetails
+      ? this.grosirTransferCollection().aggregate([
         { $match: match },
         {
           $addFields: {
@@ -417,7 +421,9 @@ class DashboardService {
         },
         { $sort: { tanggal: -1 } }
       ]).toArray()
-    ]);
+      : Promise.resolve([]);
+
+    const [summary, perTanggal] = await Promise.all([summaryPromise, perTanggalPromise]);
 
     return {
       data: {
@@ -434,6 +440,7 @@ class DashboardService {
 
   async getKeepStocks(query) {
     const match = {};
+    const includeDetails = this.shouldIncludeDetails(query);
     const dateMatch = buildStringDateMatch(query.start_date, query.end_date);
 
     if (dateMatch) {
@@ -475,8 +482,7 @@ class DashboardService {
       });
     }
 
-    const [summary, perTanggal] = await Promise.all([
-      this.pusatKeepCollection().aggregate([
+    const summaryPromise = this.pusatKeepCollection().aggregate([
         ...basePipeline,
         {
           $group: {
@@ -490,8 +496,10 @@ class DashboardService {
             total_berat_real: { $sum: "$berat_real" }
           }
         }
-      ]).toArray(),
-      this.pusatKeepCollection().aggregate([
+      ]).toArray();
+
+    const perTanggalPromise = includeDetails
+      ? this.pusatKeepCollection().aggregate([
         ...basePipeline,
         {
           $group: {
@@ -512,7 +520,9 @@ class DashboardService {
         },
         { $sort: { tanggal: -1 } }
       ]).toArray()
-    ]);
+      : Promise.resolve([]);
+
+    const [summary, perTanggal] = await Promise.all([summaryPromise, perTanggalPromise]);
 
     return {
       data: {
@@ -560,7 +570,8 @@ class DashboardService {
       match.kode_toko = query.kode_toko;
     }
 
-    const data = await this.pusatBarangCollection().aggregate([
+    const includeDetails = this.shouldIncludeDetails(query);
+    const groupedPipeline = [
       { $match: match },
       {
         $group: {
@@ -588,14 +599,47 @@ class DashboardService {
           kode_toko: 1
         }
       }
-    ]).toArray();
+    ];
 
-    return {
-      data: {
+    const data = includeDetails
+      ? await this.pusatBarangCollection().aggregate(groupedPipeline).toArray()
+      : [];
+
+    const summary = includeDetails
+      ? {
         total_group: data.length,
         total_doc: data.reduce((acc, item) => acc + item.total_doc, 0),
         total_stock_on_hand: data.reduce((acc, item) => acc + item.total_stock_on_hand, 0),
-        total_berat: round3(data.reduce((acc, item) => acc + item.total_berat, 0)),
+        total_berat: round3(data.reduce((acc, item) => acc + item.total_berat, 0))
+      }
+      : (await this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            total_group: { $addToSet: "$kode_toko" },
+            total_doc: { $sum: 1 },
+            total_stock_on_hand: { $sum: { $ifNull: ["$stock_on_hand", 0] } },
+            total_berat: { $sum: { $ifNull: ["$berat", 0] } }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            total_group: { $size: "$total_group" },
+            total_doc: 1,
+            total_stock_on_hand: 1,
+            total_berat: { $round: ["$total_berat", 3] }
+          }
+        }
+      ]).toArray())[0] || {};
+
+    return {
+      data: {
+        total_group: summary.total_group || 0,
+        total_doc: summary.total_doc || 0,
+        total_stock_on_hand: summary.total_stock_on_hand || 0,
+        total_berat: round3(summary.total_berat || 0),
         groups: data
       }
     };
@@ -697,6 +741,7 @@ class DashboardService {
     const match = {
       stock_on_hand: 1
     };
+    const includeDetails = this.shouldIncludeDetails(query);
 
     const inputDateMatch = buildJsDateMatch(query.start_date, query.end_date);
     if (inputDateMatch) {
@@ -723,8 +768,7 @@ class DashboardService {
       match.kode_toko = query.kode_toko;
     }
 
-    const [summary, groups] = await Promise.all([
-      this.pusatBarangCollection().aggregate([
+    const summaryPromise = this.pusatBarangCollection().aggregate([
         { $match: match },
         {
           $group: {
@@ -736,8 +780,10 @@ class DashboardService {
             total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
           }
         }
-      ]).toArray(),
-      this.pusatBarangCollection().aggregate([
+      ]).toArray();
+
+    const groupsPromise = includeDetails
+      ? this.pusatBarangCollection().aggregate([
         { $match: match },
         {
           $group: {
@@ -762,7 +808,9 @@ class DashboardService {
         },
         { $sort: { kode_toko: 1 } }
       ]).toArray()
-    ]);
+      : Promise.resolve([]);
+
+    const [summary, groups] = await Promise.all([summaryPromise, groupsPromise]);
 
     return {
       data: {
