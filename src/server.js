@@ -24,7 +24,9 @@ async function bootstrap() {
   app.use("/api/v1", createRoutes(service));
 
   app.use((error, req, res, next) => {
-    res.status(500).json({
+    const status = Number(error.statusCode || error.status || 500);
+
+    res.status(status).json({
       message: error.message || "Internal server error"
     });
   });

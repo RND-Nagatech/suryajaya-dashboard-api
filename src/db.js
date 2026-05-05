@@ -10,8 +10,12 @@ class MongoConnections {
   }
 
   async connect() {
-    this.grosirClient = new MongoClient(this.config.grosirMongoUri);
-    this.pusatClient = new MongoClient(this.config.pusatMongoUri);
+    const connectionOptions = {
+      readPreference: "secondary"
+    };
+
+    this.grosirClient = new MongoClient(this.config.grosirMongoUri, connectionOptions);
+    this.pusatClient = new MongoClient(this.config.pusatMongoUri, connectionOptions);
 
     await this.grosirClient.connect();
     await this.pusatClient.connect();

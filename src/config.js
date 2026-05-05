@@ -19,6 +19,9 @@ function getConfig() {
     pusatMongoUri: process.env.PUSAT_MONGO_URI,
     grosirDbName: process.env.GROSIR_DB_NAME || "grosir-suryajaya",
     pusatDbName: process.env.PUSAT_DB_NAME || "db_suryajaya_pusat",
+    branchAgingDbName: process.env.BRANCH_AGING_DB_NAME || "r22a",
+    branchAgingConcurrency: Number(process.env.BRANCH_AGING_CONCURRENCY || 6),
+    branchAgingDbTimeoutMs: Number(process.env.BRANCH_AGING_DB_TIMEOUT_MS || 45000),
     excludedBranchDbNames: [
       "a",
       "admin",
@@ -49,7 +52,11 @@ function getConfig() {
       grosirTransfer: process.env.GROSIR_TRANSFER_COLLECTION || "tt_kirim_stock",
       pusatKeepStock: process.env.PUSAT_KEEP_STOCK_COLLECTION || "tt_terima_suplier",
       pusatBarang: process.env.PUSAT_BARANG_COLLECTION || "tm_barang",
-      branchSystem: process.env.BRANCH_SYSTEM_COLLECTION || "tp_system"
+      branchBarang: process.env.BRANCH_BARANG_COLLECTION || "tm_barang",
+      branchSystem: process.env.BRANCH_SYSTEM_COLLECTION || "tp_system",
+      branchAgingSettings: process.env.BRANCH_AGING_SETTINGS_COLLECTION || "dashboard_aging_settings",
+      branchAgingJobs: process.env.BRANCH_AGING_JOBS_COLLECTION || "dashboard_aging_jobs",
+      branchAgingJobBranches: process.env.BRANCH_AGING_JOB_BRANCHES_COLLECTION || "dashboard_aging_job_branches"
     }
   };
 }

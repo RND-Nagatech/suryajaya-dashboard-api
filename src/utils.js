@@ -165,6 +165,53 @@ function classifyBarangPosition(item) {
   return "CABANG";
 }
 
+const DEFAULT_AGING_BUCKETS = [
+  { key: "age_1_30", label: "1-30 Hari", min_age: 0, max_age: 30 },
+  { key: "age_31_60", label: "31-60 Hari", min_age: 31, max_age: 60 },
+  { key: "age_61_90", label: "61-90 Hari", min_age: 61, max_age: 90 },
+  { key: "age_91_120", label: "91-120 Hari", min_age: 91, max_age: 120 },
+  { key: "age_121_plus", label: ">120 Hari", min_age: 121, max_age: null }
+];
+
+function normalizeAgingBuckets(inputBuckets = DEFAULT_AGING_BUCKETS) {
+  const source = Array.isArray(inputBuckets) && inputBuckets.length ? inputBuckets : DEFAULT_AGING_BUCKETS;
+
+  return source.map((bucket, index) => {
+    const minAge = Number(bucket?.min_age);
+    const maxAge = bucket?.max_age === null || bucket?.max_age === undefined || bucket?.max_age === ""
+      ? null
+      : Number(bucket.max_age);
+
+    return {
+      key: String(bucket?.key || `bucket_${index + 1}`),
+      label: String(bucket?.label || `Bucket ${index + 1}`),
+      min_age: Number.isFinite(minAge) ? minAge : (index === 0 ? 0 : 1),
+      max_age: Number.isFinite(maxAge) ? maxAge : null
+    };
+  });
+}
+
+function classifyAgeBucket(ageDays, buckets = DEFAULT_AGING_BUCKETS) {
+  if (!Number.isFinite(Number(ageDays))) {
+    return null;
+  }
+
+  const normalizedBuckets = normalizeAgingBuckets(buckets);
+  const age = Number(ageDays);
+
+  return normalizedBuckets.find((bucket) => {
+    if (age < bucket.min_age) {
+      return false;
+    }
+
+    if (bucket.max_age === null) {
+      return true;
+    }
+
+    return age <= bucket.max_age;
+  }) || null;
+}
+
 module.exports = {
   getPagination,
   round3,
@@ -176,5 +223,8 @@ module.exports = {
   buildStringDateMatch,
   buildJsDateMatch,
   normalizeTransferStatus,
-  classifyBarangPosition
+  classifyBarangPosition,
+  DEFAULT_AGING_BUCKETS,
+  normalizeAgingBuckets,
+  classifyAgeBucket
 };
