@@ -16,7 +16,7 @@ const BRANCH_PAGE_SIZE = 8;
 const ITEM_PAGE_SIZE = 8;
 const AGING_JOB_POLL_INTERVAL_MS = 2000;
 
-export function useAgingStocks(enabled) {
+export function useAgingStocks(enabled, itemGroupFilter = "") {
   const [settings, setSettings] = useState(null);
   const [latestJob, setLatestJob] = useState(null);
   const [branches, setBranches] = useState([]);
@@ -150,7 +150,8 @@ export function useAgingStocks(enabled) {
         db_name: branchDbName || undefined,
         search: search || undefined,
         page,
-        limit: ITEM_PAGE_SIZE
+        limit: ITEM_PAGE_SIZE,
+        kode_group: itemGroupFilter || undefined
       });
       if (requestId !== itemRequestRef.current) {
         return;
@@ -422,7 +423,7 @@ export function useAgingStocks(enabled) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, latestJob?.job_id, selectedBucketKey, selectedBranchCode, selectedBranchDbName, itemPage, debouncedItemSearch]);
+  }, [enabled, latestJob?.job_id, selectedBucketKey, selectedBranchCode, selectedBranchDbName, itemPage, debouncedItemSearch, itemGroupFilter]);
 
   return {
     settings,

@@ -14,6 +14,7 @@ export function useDashboardData(activePage) {
   const hasDashboardDataRef = useRef(false);
 
   useEffect(() => {
+    if (!activePage) return;
     let mounted = true;
 
     const loadData = async (mode = "refresh") => {

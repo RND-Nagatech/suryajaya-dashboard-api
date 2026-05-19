@@ -3,6 +3,62 @@ const express = require("express");
 function createRoutes(service) {
   const router = express.Router();
 
+  router.get("/dashboard/groups", async (req, res, next) => {
+    try {
+      res.json(await service.listGroups());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/dashboard/exclude-groups", async (req, res, next) => {
+    try {
+      res.json(await service.getExcludeGroupSettings());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put("/dashboard/exclude-groups", async (req, res, next) => {
+    try {
+      res.json(await service.updateExcludeGroupSettings(req.body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/users", async (req, res, next) => {
+    try {
+      res.json(await service.listUsers());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/users", async (req, res, next) => {
+    try {
+      res.status(201).json(await service.createUser(req.body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put("/users/:username", async (req, res, next) => {
+    try {
+      res.json(await service.updateUser(req.params.username, req.body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete("/users/:username", async (req, res, next) => {
+    try {
+      res.json(await service.deleteUser(req.params.username));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/health", async (req, res, next) => {
     try {
       res.json({
@@ -54,9 +110,25 @@ function createRoutes(service) {
     }
   });
 
+  router.get("/dashboard/pusat/kom-stocks/items", async (req, res, next) => {
+    try {
+      res.json(await service.getKomStockItems(req.query));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/dashboard/pusat/brc-stocks", async (req, res, next) => {
     try {
       res.json(await service.getBrcStocks(req.query));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/dashboard/pusat/brc-stocks/items", async (req, res, next) => {
+    try {
+      res.json(await service.getBrcStockItems(req.query));
     } catch (error) {
       next(error);
     }
@@ -70,9 +142,33 @@ function createRoutes(service) {
     }
   });
 
+  router.get("/dashboard/pusat/cabang-stocks/items", async (req, res, next) => {
+    try {
+      res.json(await service.getCabangStockItems(req.query));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/dashboard/cabang/aging-stocks", async (req, res, next) => {
     try {
       res.json(await service.getCabangAgingStatus(req.query));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/dashboard/labels", async (req, res, next) => {
+    try {
+      res.json(await service.getLabelSettings());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.put("/dashboard/labels", async (req, res, next) => {
+    try {
+      res.json(await service.updateLabelSettings(req.body));
     } catch (error) {
       next(error);
     }

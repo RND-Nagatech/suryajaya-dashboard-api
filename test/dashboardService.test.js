@@ -71,10 +71,20 @@ function createService(branchDataByDb) {
     ])
   );
 
+  const mockCollection = {
+    findOne: async () => null,
+    find: () => ({ sort: () => ({ toArray: async () => [] }) }),
+    aggregate: () => ({ toArray: async () => [] }),
+    countDocuments: async () => 0,
+    insertOne: async () => ({}),
+    updateOne: async () => ({}),
+    deleteOne: async () => ({})
+  };
+
   return new DashboardService(
     {
-      grosirDb: { collection: () => ({}) },
-      pusatDb: { collection: () => ({}) },
+      grosirDb: { collection: () => mockCollection },
+      pusatDb: { collection: () => mockCollection },
       getBranchDb: (dbName) => ({
         collection: (collectionName) =>
           collections.get(dbName)?.[collectionName] || createCollection([])

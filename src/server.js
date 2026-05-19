@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const { signToken, authMiddleware } = require("./auth");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -18,14 +19,42 @@ async function bootstrap() {
   const app = express();
   const service = new DashboardService(mongoConnections.getDbs(), config);
 
+  await service.seedDefaultUser();
+
   app.use(cors());
   app.use(helmet());
   app.use(express.json());
+
+  app.post("/api/v1/auth/login", async (req, res, next) => {
+    try {
+      res.json(await service.login(req.body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/v1/health", async (req, res) => {
+    res.json({ ok: true, service: "suryajaya-dashboard-api" });
+  });
+
+  app.use("/api/v1", authMiddleware(service.usersCollection()));
+
+  app.get("/api/v1/auth/me", async (req, res) => {
+    res.json({ data: req.user || null });
+  });
+
+  app.post("/api/v1/auth/verify-superuser", async (req, res, next) => {
+    try {
+      res.json(await service.verifySuperuser(req.body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.use("/api/v1", createRoutes(service));
 
   app.use((error, req, res, next) => {
     const status = Number(error.statusCode || error.status || 500);
-
     res.status(status).json({
       message: error.message || "Internal server error"
     });

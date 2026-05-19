@@ -56,7 +56,10 @@ function getConfig() {
       branchSystem: process.env.BRANCH_SYSTEM_COLLECTION || "tp_system",
       branchAgingSettings: process.env.BRANCH_AGING_SETTINGS_COLLECTION || "dashboard_aging_settings",
       branchAgingJobs: process.env.BRANCH_AGING_JOBS_COLLECTION || "dashboard_aging_jobs",
-      branchAgingJobBranches: process.env.BRANCH_AGING_JOB_BRANCHES_COLLECTION || "dashboard_aging_job_branches"
+      branchAgingJobBranches: process.env.BRANCH_AGING_JOB_BRANCHES_COLLECTION || "dashboard_aging_job_branches",
+      labelSettings: process.env.LABEL_SETTINGS_COLLECTION || "dashboard_label_settings",
+      users: process.env.USERS_COLLECTION || "dashboard_users",
+      groupMaster: process.env.GROUP_MASTER_COLLECTION || "tm_group"
     }
   };
 }

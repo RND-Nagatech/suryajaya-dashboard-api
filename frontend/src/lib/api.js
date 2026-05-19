@@ -1,13 +1,31 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3301/api/v1";
 
+function getToken() {
+  return localStorage.getItem("suryajaya_token") || "";
+}
+
+export function clearToken() {
+  localStorage.removeItem("suryajaya_token");
+}
+
 async function requestJson(path, { method = "GET", body } = {}) {
+  const headers = {};
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  if (body) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined
   });
   if (!response.ok) {
-    throw new Error(`Request gagal: ${response.status} ${response.statusText}`);
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.message || `Request gagal: ${response.status} ${response.statusText}`);
   }
 
   return response.json();
@@ -271,8 +289,31 @@ export async function fetchFocusBundle() {
   };
 }
 
+export async function fetchBrcStockItems(query = {}) {
+  return requestJson(withQuery("/dashboard/pusat/brc-stocks/items", query));
+}
+
+export async function fetchKomStockItems(query = {}) {
+  return requestJson(withQuery("/dashboard/pusat/kom-stocks/items", query));
+}
+
+export async function fetchCabangStockItems(query = {}) {
+  return requestJson(withQuery("/dashboard/pusat/cabang-stocks/items", query));
+}
+
 export async function fetchAgingState() {
   return requestJson("/dashboard/cabang/aging-stocks");
+}
+
+export async function fetchLabelSettings() {
+  return requestJson("/dashboard/labels");
+}
+
+export async function updateLabelSettings(payload) {
+  return requestJson("/dashboard/labels", {
+    method: "PUT",
+    body: payload
+  });
 }
 
 export async function fetchAgingSettings() {
@@ -313,4 +354,61 @@ export async function fetchAgingJobItems(jobId, bucket, kodeCabang, query = {}) 
       query
     )
   );
+}
+
+export async function loginApi(username, password) {
+  return requestJson("/auth/login", {
+    method: "POST",
+    body: { username, password }
+  });
+}
+
+export async function fetchMe() {
+  return requestJson("/auth/me");
+}
+
+export async function verifySuperuserPassword(password) {
+  return requestJson("/auth/verify-superuser", {
+    method: "POST",
+    body: { password }
+  });
+}
+
+export async function fetchUsers() {
+  return requestJson("/users");
+}
+
+export async function createUser(username, password, level) {
+  return requestJson("/users", {
+    method: "POST",
+    body: { username, password, level }
+  });
+}
+
+export async function updateUser(username, payload) {
+  return requestJson(`/users/${encodeURIComponent(username)}`, {
+    method: "PUT",
+    body: payload
+  });
+}
+
+export async function deleteUser(username) {
+  return requestJson(`/users/${encodeURIComponent(username)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchGroups() {
+  return requestJson("/dashboard/groups");
+}
+
+export async function fetchExcludeGroupSettings() {
+  return requestJson("/dashboard/exclude-groups");
+}
+
+export async function updateExcludeGroupSettings(payload) {
+  return requestJson("/dashboard/exclude-groups", {
+    method: "PUT",
+    body: payload
+  });
 }

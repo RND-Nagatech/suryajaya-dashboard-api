@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { GlassCard } from "./GlassCard";
 import { useAgingStocks } from "../hooks/useAgingStocks";
+import { fetchGroups, verifySuperuserPassword } from "../lib/api";
 import {
   formatCompactNumber,
   formatInteger,
@@ -15,6 +17,17 @@ import { Encryptor } from '../lib/encryptor'
 
 const COLORS = ["#22c55e", "#84cc16", "#facc15", "#fb923c", "#ef4444"];
 const encryptor = new Encryptor();
+
+function hexToRgb(hex) {
+  if (!hex || !/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    return null;
+  }
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
 function getBucketTone(bucketKey) {
   switch (bucketKey) {
     case "age_1_30":
@@ -32,10 +45,29 @@ function getBucketTone(bucketKey) {
   }
 }
 
+function getBucketColor(bucket, index) {
+  return bucket?.color || COLORS[index % COLORS.length];
+}
+
 function formatPercent(value) {
   return `${new Intl.NumberFormat("id-ID", {
     maximumFractionDigits: 1
   }).format(Number(value || 0))}%`;
+}
+
+function ObscuredWeight({ value, unit, visible, onToggle, className }) {
+  return (
+    <span className={`obscured-value ${className || ""}`}>
+      {visible ? (
+        <span>{formatMetric(value, unit)}</span>
+      ) : (
+        <span>{"***"} {unit || "gr"}</span>
+      )}
+      <button type="button" className="obscured-toggle" onClick={onToggle} aria-label={visible ? "Sembunyikan" : "Tampilkan"}>
+        {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </span>
+  );
 }
 
 function AgingMetricTile({ label, value, meta, tone = "glass", icon: Icon, iconColor: iconColorProp }) {
@@ -51,7 +83,7 @@ function AgingMetricTile({ label, value, meta, tone = "glass", icon: Icon, iconC
   );
 }
 
-function AgingMetricStrip({ summary, totalWeight, totalDoc, totalSoh, dominantBucket, branchCount }) {
+function AgingMetricStrip({ summary, totalWeight, totalDoc, totalSoh, dominantBucket, branchCount, weightVisible, onToggleWeight }) {
   const dominantShare = totalWeight > 0 && dominantBucket ? (Number(dominantBucket.total_berat || 0) / totalWeight) * 100 : 0;
   const dominantTone = dominantBucket ? `tone-${getBucketTone(dominantBucket.key)}` : "tone-glass";
 
@@ -59,7 +91,7 @@ function AgingMetricStrip({ summary, totalWeight, totalDoc, totalSoh, dominantBu
     <section className="aging-metric-strip">
       <AgingMetricTile
         label="Total Berat"
-        value={formatMetric(summary.total_berat || 0, "gr")}
+        value={<ObscuredWeight value={summary.total_berat || 0} unit="gr" visible={weightVisible} onToggle={onToggleWeight} />}
         meta="Akumulasi seluruh bucket aging"
         tone="lime"
         icon={TrendingUp}
@@ -84,7 +116,7 @@ function AgingMetricStrip({ summary, totalWeight, totalDoc, totalSoh, dominantBu
         meta={`${formatPercent(dominantShare)} dari total · ${formatInteger(branchCount || 0)} cabang`}
         tone={dominantTone.replace("tone-", "")}
         icon={AlertTriangle}
-        iconColor={dominantBucket ? COLORS[Math.max(0, ["age_1_30", "age_31_60", "age_61_90", "age_91_120", "age_121_plus"].indexOf(dominantBucket.key)) % COLORS.length] : undefined}
+        iconColor={dominantBucket?.color || (dominantBucket ? COLORS[Math.max(0, ["age_1_30", "age_31_60", "age_61_90", "age_91_120", "age_121_plus"].indexOf(dominantBucket.key)) % COLORS.length] : undefined)}
       />
     </section>
   );
@@ -178,10 +210,11 @@ function BranchDeptDistributionCard({ selectedBranchCode, deptBreakdown, totalWe
   );
 }
 
-function AgingDistributionCard({ buckets, totalWeight, activeBucketKey }) {
+function AgingDistributionCard({ buckets, totalWeight, activeBucketKey, weightVisible, onToggleWeight }) {
   const bucketData = buckets.map((bucket) => ({
     name: bucket.label,
-    value: Number(bucket.total_berat || 0)
+    value: Number(bucket.total_berat || 0),
+    color: bucket.color
   }));
   const dominantBucket = [...buckets].sort((left, right) => Number(right.total_berat || 0) - Number(left.total_berat || 0))[0] || null;
   const dominantShare = totalWeight > 0 && dominantBucket ? (Number(dominantBucket.total_berat || 0) / totalWeight) * 100 : 0;
@@ -211,14 +244,14 @@ function AgingDistributionCard({ buckets, totalWeight, activeBucketKey }) {
                 strokeWidth={1}
               >
                 {bucketData.map((entry, index) => (
-                  <Cell key={entry.name || index} fill={COLORS[index % COLORS.length]} />
+                  <Cell key={entry.name || index} fill={getBucketColor(entry, index)} />
                 ))}
               </Pie>
             </PieChart>
           </ResponsiveContainer>
 
           <div className="donut-center">
-            <strong>{formatMetric(totalWeight || 0, "gr")}</strong>
+            <strong><ObscuredWeight value={totalWeight || 0} unit="gr" visible={weightVisible} onToggle={onToggleWeight} /></strong>
             <small>Total nilai stok</small>
           </div>
         </div>
@@ -236,11 +269,16 @@ function AgingDistributionCard({ buckets, totalWeight, activeBucketKey }) {
               const share = totalWeight > 0 ? (Number(bucket.total_berat || 0) / totalWeight) * 100 : 0;
               const active = bucket.key === activeBucketKey;
 
+              const bucketRgb = hexToRgb(getBucketColor(bucket, index));
               return (
-                <div key={bucket.key} className={`aging-legend-row ${active ? "is-active" : ""} tone-${getBucketTone(bucket.key)}`}>
+                <div
+                  key={bucket.key}
+                  className={`aging-legend-row ${active ? "is-active" : ""} tone-${getBucketTone(bucket.key)}`}
+                  style={bucketRgb ? { "--bucket-rgb": bucketRgb } : undefined}
+                >
                   <span
                     className="aging-legend-dot"
-                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                    style={{ backgroundColor: getBucketColor(bucket, index) }}
                     aria-hidden="true"
                   />
                   <div className="aging-legend-copy">
@@ -333,7 +371,10 @@ function AgingInsightCard({ totalWeight, dominantBucket, topBranch, jobStatus, l
       </div>
 
       <div className="aging-insight-stack">
-        <article className={`aging-insight-item tone-${dominantTone}`}>
+        <article
+          className={`aging-insight-item tone-${dominantTone}`}
+          style={dominantBucket?.color && hexToRgb(dominantBucket.color) ? { "--bucket-rgb": hexToRgb(dominantBucket.color) } : undefined}
+        >
           <Target size={18} strokeWidth={2.2} aria-hidden="true" />
           <div>
             <span>Bucket fokus</span>
@@ -372,21 +413,23 @@ function AgingProgressBar({ value }) {
   );
 }
 
-function AgingBucketCard({ bucket, active, onClick }) {
+function AgingBucketCard({ bucket, active, onClick, weightVisible, onToggleWeight }) {
   const share = Number(bucket.share || 0);
   const tone = bucket.tone || "glass";
+  const bucketRgb = hexToRgb(bucket.color);
 
   return (
     <button
       type="button"
       className={`aging-bucket-card tone-${tone} ${active ? "is-active" : ""}`}
+      style={bucketRgb ? { "--bucket-rgb": bucketRgb } : undefined}
       onClick={onClick}
     >
       <div className="aging-bucket-head">
         <span className="aging-bucket-label">{bucket.label}</span>
         <span className="aging-bucket-share">{formatPercent(share)}</span>
       </div>
-      <strong>{formatMetric(bucket.total_berat || 0, "gr")}</strong>
+      <strong><ObscuredWeight value={bucket.total_berat || 0} unit="gr" visible={weightVisible} onToggle={onToggleWeight} /></strong>
       <small>{formatInteger(bucket.total_doc || 0)} dok | {formatInteger(bucket.branch_count || 0)} cabang</small>
     </button>
   );
@@ -417,6 +460,13 @@ function AgingSettingRow({ bucket, index, onChange, onRemove, removable, errorMe
           onChange={(event) => onChange(index, "max_age", event.target.value)}
           className="aging-setting-input aging-setting-number"
           placeholder="null"
+        />
+        <input
+          type="color"
+          value={bucket.color || "#84cc16"}
+          onChange={(event) => onChange(index, "color", event.target.value)}
+          className="settings-color-input"
+          title="Warna bucket"
         />
         <button
           type="button"
@@ -558,8 +608,45 @@ async function getImageUrlByBarcode(barcode) {
   return null;
 }
 
-export function AgingPage({ enabled }) {
-  const aging = useAgingStocks(enabled);
+export function AgingPage({ enabled, user }) {
+  const isSuperuser = user?.level === "superuser";
+  const [weightVisible, setWeightVisible] = useState(isSuperuser);
+  const [superuserPromptOpen, setSuperuserPromptOpen] = useState(false);
+  const [superuserPassword, setSuperuserPassword] = useState("");
+  const [superuserError, setSuperuserError] = useState("");
+  const [groupList, setGroupList] = useState([]);
+  const [itemGroupFilter, setItemGroupFilter] = useState("");
+
+  useEffect(() => {
+    if (!enabled) return;
+    fetchGroups()
+      .then((res) => setGroupList(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => setGroupList([]));
+  }, [enabled]);
+
+  const handleToggleWeight = () => {
+    if (weightVisible) {
+      setWeightVisible(false);
+    } else if (isSuperuser) {
+      setWeightVisible(true);
+    } else {
+      setSuperuserPromptOpen(true);
+      setSuperuserPassword("");
+      setSuperuserError("");
+    }
+  };
+
+  const handleVerifySuperuser = async () => {
+    setSuperuserError("");
+    try {
+      await verifySuperuserPassword(superuserPassword);
+      setSuperuserPromptOpen(false);
+      setWeightVisible(true);
+    } catch {
+      setSuperuserError("Password superuser salah");
+    }
+  };
+  const aging = useAgingStocks(enabled, itemGroupFilter);
   const [draftBuckets, setDraftBuckets] = useState([]);
   const [excludedDatabasesDraft, setExcludedDatabasesDraft] = useState([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -581,7 +668,8 @@ export function AgingPage({ enabled }) {
           key: bucket.key,
           label: bucket.label,
           min_age: bucket.min_age,
-          max_age: bucket.max_age
+          max_age: bucket.max_age,
+          color: bucket.color || COLORS[0]
         }))
       );
     }
@@ -611,11 +699,16 @@ export function AgingPage({ enabled }) {
   const totalBucketWeight = displayedBuckets.reduce((total, bucket) => total + Number(bucket.total_berat || 0), 0);
   const totalBucketDoc = displayedBuckets.reduce((total, bucket) => total + Number(bucket.total_doc || 0), 0);
   const totalBucketSoh = displayedBuckets.reduce((total, bucket) => total + Number(bucket.total_stock_on_hand || 0), 0);
-  const bucketCards = displayedBuckets.map((bucket) => ({
-    ...bucket,
-    tone: getBucketTone(bucket.key),
-    share: totalBucketWeight > 0 ? (Number(bucket.total_berat || 0) / totalBucketWeight) * 100 : 0
-  }));
+  const settingsBucketMap = new Map((aging.settings?.buckets || []).map((b) => [b.key, b]));
+  const bucketCards = displayedBuckets.map((bucket) => {
+    const settingsBucket = settingsBucketMap.get(bucket.key);
+    return {
+      ...bucket,
+      color: settingsBucket?.color || bucket.color,
+      tone: getBucketTone(bucket.key),
+      share: totalBucketWeight > 0 ? (Number(bucket.total_berat || 0) / totalBucketWeight) * 100 : 0
+    };
+  });
   const dominantBucket = [...displayedBuckets].sort((left, right) => Number(right.total_berat || 0) - Number(left.total_berat || 0))[0] || null;
   const topBranchPreview = [...aging.branches].sort((left, right) => Number(right.total_berat || 0) - Number(left.total_berat || 0))[0] || null;
 
@@ -738,7 +831,8 @@ export function AgingPage({ enabled }) {
           key: buildBucketKey(`Bucket ${current.length + 1}`, current.length),
           label: `Bucket ${current.length + 1}`,
           min_age: fallbackMin,
-          max_age: null
+          max_age: null,
+          color: COLORS[current.length % COLORS.length]
         }
       ];
     });
@@ -835,6 +929,9 @@ export function AgingPage({ enabled }) {
             </small>
           </div>
           <div className="aging-status-actions">
+            <button type="button" className="aging-action-btn" onClick={handleToggleWeight} title={weightVisible ? "Sembunyikan berat" : "Tampilkan berat"}>
+              {weightVisible ? <><EyeOff size={14} /> Berat</> : <><Eye size={14} /> Berat</>}
+            </button>
             <button type="button" className="aging-action-btn" onClick={() => aging.refreshJob()}>
               {aging.isStarting ? "Starting..." : "Refresh Job"}
             </button>
@@ -858,6 +955,9 @@ export function AgingPage({ enabled }) {
               </p>
             </div>
             <div className="aging-status-actions">
+              <button type="button" className="aging-action-btn" onClick={handleToggleWeight} title={weightVisible ? "Sembunyikan berat" : "Tampilkan berat"}>
+                {weightVisible ? <><EyeOff size={14} /> Berat</> : <><Eye size={14} /> Berat</>}
+              </button>
               <button type="button" className="aging-action-btn" onClick={() => aging.refreshJob()}>
                 {aging.isStarting ? "Starting..." : "Refresh Job"}
               </button>
@@ -901,7 +1001,7 @@ export function AgingPage({ enabled }) {
         </GlassCard>
       )}
 
-      {isJobComplete ? (
+      {isJobComplete && !aging.selectedBranchCode ? (
         <AgingMetricStrip
           summary={summary}
           totalWeight={totalBucketWeight}
@@ -909,15 +1009,22 @@ export function AgingPage({ enabled }) {
           totalSoh={totalBucketSoh}
           dominantBucket={dominantBucket}
           branchCount={aging.branchPagination?.total || aging.branches.length}
+          weightVisible={weightVisible}
+          onToggleWeight={handleToggleWeight}
         />
       ) : null}
 
-      <section className="aging-bucket-grid">
+      <section
+        className="aging-bucket-grid"
+        style={{ gridTemplateColumns: `repeat(${bucketCards.length || 1}, minmax(0, 1fr))` }}
+      >
         {bucketCards.map((bucket) => (
           <AgingBucketCard
             key={bucket.key}
             bucket={bucket}
             active={bucket.key === aging.selectedBucketKey}
+            weightVisible={weightVisible}
+            onToggleWeight={handleToggleWeight}
             onClick={() => {
               aging.setBranchPage(1);
               aging.setItemPage(1);
@@ -943,6 +1050,8 @@ export function AgingPage({ enabled }) {
             buckets={displayedBuckets}
             totalWeight={totalBucketWeight}
             activeBucketKey={aging.selectedBucketKey}
+            weightVisible={weightVisible}
+            onToggleWeight={handleToggleWeight}
           />
         )}
 
@@ -1012,6 +1121,18 @@ export function AgingPage({ enabled }) {
                 onChange={(value) => aging.setItemSearch(value)}
                 placeholder="Cari barcode atau kode toko"
               />
+              <div className="aging-group-filter">
+                <select
+                  className="aging-setting-input"
+                  value={itemGroupFilter}
+                  onChange={(e) => { setItemGroupFilter(e.target.value); aging.setItemPage(1); }}
+                >
+                  <option value="">Semua kode group</option>
+                  {groupList.map((group) => (
+                    <option key={group} value={group}>{group}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <AgingPager
               label={aging.itemLoading ? "Memuat barang..." : "Barang cabang ini"}
@@ -1071,6 +1192,7 @@ export function AgingPage({ enabled }) {
                 <span>Label</span>
                 <span>Min</span>
                 <span>Max</span>
+                <span>Warna</span>
                 <span>Aksi</span>
               </div>
 
@@ -1246,6 +1368,29 @@ export function AgingPage({ enabled }) {
           </div>
         </div>
       ) : null}
+
+      {superuserPromptOpen && (
+        <div className="superuser-password-overlay" onClick={() => setSuperuserPromptOpen(false)}>
+          <div className="superuser-password-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Password Superuser</h3>
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.84rem" }}>Diperlukan password superuser untuk melihat nilai berat.</p>
+            <input
+              type="password"
+              className="aging-setting-input"
+              placeholder="Password superuser"
+              value={superuserPassword}
+              onChange={(e) => setSuperuserPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleVerifySuperuser(); }}
+              autoFocus
+            />
+            {superuserError && <small className="aging-setting-error">{superuserError}</small>}
+            <div className="aging-modal-actions">
+              <button type="button" className="aging-action-btn" onClick={() => setSuperuserPromptOpen(false)}>Batal</button>
+              <button type="button" className="aging-action-btn is-primary" onClick={handleVerifySuperuser}>Verifikasi</button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </section>
   );

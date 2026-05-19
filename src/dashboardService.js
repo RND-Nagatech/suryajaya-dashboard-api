@@ -108,6 +108,207 @@ class DashboardService {
     return this.pusatDb.collection(this.config.collections.branchAgingSettings);
   }
 
+  labelSettingsCollection() {
+    return this.pusatDb.collection(this.config.collections.labelSettings);
+  }
+
+  usersCollection() {
+    return this.pusatDb.collection(this.config.collections.users);
+  }
+
+  groupMasterCollection() {
+    return this.pusatDb.collection(this.config.collections.groupMaster);
+  }
+
+  async getExcludedGroups() {
+    const doc = await this.labelSettingsCollection().findOne({ _id: "aging_exclude_groups" });
+    return Array.isArray(doc?.groups) ? doc.groups : [];
+  }
+
+  async buildExcludeGroupFilter() {
+    const excluded = await this.getExcludedGroups();
+    if (!excluded.length) return null;
+    return { kode_group: { $nin: excluded } };
+  }
+
+  async listGroups() {
+    const docs = await this.groupMasterCollection().find(
+      {},
+      { projection: { _id: 0, kode_group: 1 } }
+    ).sort({ kode_group: 1 }).toArray();
+
+    const groups = [...new Set(docs.map((d) => d.kode_group).filter(Boolean))].sort();
+    return { data: groups };
+  }
+
+  async getExcludeGroupSettings() {
+    const doc = await this.labelSettingsCollection().findOne({ _id: "aging_exclude_groups" });
+    return {
+      data: {
+        excluded_groups: Array.isArray(doc?.groups) ? doc.groups : [],
+        updated_at: doc?.updated_at || null
+      }
+    };
+  }
+
+  async updateExcludeGroupSettings(payload) {
+    const groups = [...new Set(
+      (Array.isArray(payload?.excluded_groups) ? payload.excluded_groups : [])
+        .map((g) => String(g || "").trim())
+        .filter(Boolean)
+    )].sort();
+
+    const now = new Date().toISOString();
+    await this.labelSettingsCollection().updateOne(
+      { _id: "aging_exclude_groups" },
+      { $set: { groups, updated_at: now }, $setOnInsert: { created_at: now } },
+      { upsert: true }
+    );
+
+    return { data: { excluded_groups: groups, updated_at: now } };
+  }
+
+  async login(payload) {
+    const username = String(payload?.username || "").trim();
+    const password = String(payload?.password || "");
+
+    if (!username || !password) {
+      throw createHttpError("Username dan password wajib diisi", 400);
+    }
+
+    const { bcrypt, signToken } = require("./auth");
+    const user = await this.usersCollection().findOne({ _id: username });
+    if (!user) {
+      throw createHttpError("Username atau password salah", 401);
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      throw createHttpError("Username atau password salah", 401);
+    }
+
+    const token = signToken({ username: user._id, level: user.level });
+    return {
+      data: {
+        token,
+        user: {
+          username: user._id,
+          level: user.level || "operator"
+        }
+      }
+    };
+  }
+
+  async verifySuperuser(payload) {
+    const password = String(payload?.password || "");
+    const { verifySuperuserPassword } = require("./auth");
+    const valid = await verifySuperuserPassword(password);
+    if (!valid) {
+      throw createHttpError("Password superuser salah", 403);
+    }
+    return { data: { ok: true } };
+  }
+
+  async seedDefaultUser() {
+    const existing = await this.usersCollection().findOne({ _id: "admin" });
+    if (existing) return;
+
+    const { bcrypt } = require("./auth");
+    const hash = await bcrypt.hash("admin123", 10);
+    const now = new Date().toISOString();
+    await this.usersCollection().insertOne({
+      _id: "admin",
+      password: hash,
+      level: "superuser",
+      created_at: now,
+      updated_at: now
+    });
+    console.log("Default superuser created: admin / admin123");
+  }
+
+  async listUsers() {
+    const users = await this.usersCollection().find(
+      {},
+      { projection: { _id: 1, level: 1, created_at: 1, updated_at: 1 } }
+    ).sort({ _id: 1 }).toArray();
+
+    return {
+      data: users.map((u) => ({
+        username: u._id,
+        level: u.level || "operator",
+        created_at: u.created_at || null,
+        updated_at: u.updated_at || null
+      }))
+    };
+  }
+
+  async createUser(payload) {
+    const username = String(payload?.username || "").trim();
+    const password = String(payload?.password || "");
+    const level = payload?.level === "superuser" ? "superuser" : "operator";
+
+    if (!username || !password) {
+      throw createHttpError("Username dan password wajib diisi", 400);
+    }
+
+    const exists = await this.usersCollection().findOne({ _id: username });
+    if (exists) {
+      throw createHttpError("Username sudah digunakan", 409);
+    }
+
+    const { bcrypt } = require("./auth");
+    const hash = await bcrypt.hash(password, 10);
+    const now = new Date().toISOString();
+    await this.usersCollection().insertOne({
+      _id: username,
+      password: hash,
+      level,
+      created_at: now,
+      updated_at: now
+    });
+
+    return { data: { username, level, created_at: now } };
+  }
+
+  async updateUser(username, payload) {
+    if (!username) {
+      throw createHttpError("Username wajib diisi", 400);
+    }
+
+    const user = await this.usersCollection().findOne({ _id: username });
+    if (!user) {
+      throw createHttpError("User tidak ditemukan", 404);
+    }
+
+    const update = { updated_at: new Date().toISOString() };
+    if (payload?.level) {
+      update.level = payload.level === "superuser" ? "superuser" : "operator";
+    }
+    if (payload?.password) {
+      const { bcrypt } = require("./auth");
+      update.password = await bcrypt.hash(String(payload.password), 10);
+    }
+
+    await this.usersCollection().updateOne({ _id: username }, { $set: update });
+    return { data: { username, updated_at: update.updated_at } };
+  }
+
+  async deleteUser(username) {
+    if (!username) {
+      throw createHttpError("Username wajib diisi", 400);
+    }
+    if (username === "admin") {
+      throw createHttpError("Admin user tidak bisa dihapus", 403);
+    }
+
+    const result = await this.usersCollection().deleteOne({ _id: username });
+    if (result.deletedCount === 0) {
+      throw createHttpError("User tidak ditemukan", 404);
+    }
+
+    return { data: { username } };
+  }
+
   agingJobsCollection() {
     return this.pusatDb.collection(this.config.collections.branchAgingJobs);
   }
@@ -116,11 +317,84 @@ class DashboardService {
     return this.pusatDb.collection(this.config.collections.branchAgingJobBranches);
   }
 
+  DEFAULT_LABELS = {
+    grosir: "Grosir",
+    keepStocks: "Keep Stocks",
+    kom: "KOM Stocks",
+    brc: "BRC Stocks",
+    cabang: "Cabang Stocks"
+  };
+
   shouldIncludeDetails(query) {
     return String(query.include_details || "true").toLowerCase() !== "false";
   }
 
+  async getLabelSettings() {
+    const doc = await this.labelSettingsCollection().findOne({ _id: "default" });
+    return {
+      data: {
+        labels: {
+          grosir: doc?.labels?.grosir || this.DEFAULT_LABELS.grosir,
+          keepStocks: doc?.labels?.keepStocks || this.DEFAULT_LABELS.keepStocks,
+          kom: doc?.labels?.kom || this.DEFAULT_LABELS.kom,
+          brc: doc?.labels?.brc || this.DEFAULT_LABELS.brc,
+          cabang: doc?.labels?.cabang || this.DEFAULT_LABELS.cabang
+        },
+        updated_at: doc?.updated_at || null
+      }
+    };
+  }
+
+  async updateLabelSettings(payload) {
+    const labels = payload?.labels;
+    if (!labels || typeof labels !== "object") {
+      throw createHttpError("Payload labels wajib diisi", 400);
+    }
+
+    const allowedKeys = Object.keys(this.DEFAULT_LABELS);
+    const sanitized = {};
+    for (const key of allowedKeys) {
+      const value = labels[key];
+      if (value !== undefined && value !== null && String(value).trim() !== "") {
+        sanitized[key] = String(value).trim();
+      }
+    }
+
+    if (!Object.keys(sanitized).length) {
+      throw createHttpError("Minimal satu label harus diisi", 400);
+    }
+
+    const now = new Date().toISOString();
+    const existing = await this.labelSettingsCollection().findOne({ _id: "default" });
+
+    await this.labelSettingsCollection().updateOne(
+      { _id: "default" },
+      {
+        $set: {
+          labels: sanitized,
+          updated_at: now
+        },
+        $setOnInsert: {
+          created_at: existing?.created_at || now
+        }
+      },
+      { upsert: true }
+    );
+
+    return this.getLabelSettings();
+  }
+
   async getOverview(query) {
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    const komMatch = { stock_on_hand: 1, kode_toko: { $regex: "KOM", $options: "i" } };
+    const brcMatch = { stock_on_hand: 1, kode_toko: { $regex: "BRC", $options: "i" } };
+    const cabangMatch = { stock_on_hand: 1, kode_gudang: "TOKO", kode_toko: { $not: /KOM|BRC/i } };
+    if (excludeGroupFilter) {
+      Object.assign(komMatch, excludeGroupFilter);
+      Object.assign(brcMatch, excludeGroupFilter);
+      Object.assign(cabangMatch, excludeGroupFilter);
+    }
+
     const [grosirSummary, transferPending, transferReceived, keepSummary, komSummary, brcSummary, cabangSummary] = await Promise.all([
       this.grosirStockCollection().aggregate([
         {
@@ -200,12 +474,7 @@ class DashboardService {
         }
       ]).toArray(),
       this.pusatBarangCollection().aggregate([
-        {
-          $match: {
-            stock_on_hand: 1,
-            kode_toko: { $regex: "KOM", $options: "i" }
-          }
-        },
+        { $match: komMatch },
         {
           $group: {
             _id: null,
@@ -218,12 +487,7 @@ class DashboardService {
         }
       ]).toArray(),
       this.pusatBarangCollection().aggregate([
-        {
-          $match: {
-            stock_on_hand: 1,
-            kode_toko: { $regex: "BRC", $options: "i" }
-          }
-        },
+        { $match: brcMatch },
         {
           $group: {
             _id: null,
@@ -236,15 +500,7 @@ class DashboardService {
         }
       ]).toArray(),
       this.pusatBarangCollection().aggregate([
-        {
-          $match: {
-            stock_on_hand: 1,
-            kode_gudang: "TOKO",
-            kode_toko: {
-              $not: /KOM|BRC/i
-            }
-          }
-        },
+        { $match: cabangMatch },
         {
           $group: {
             _id: null,
@@ -654,6 +910,11 @@ class DashboardService {
       match.kode_toko = query.kode_toko;
     }
 
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    if (excludeGroupFilter) {
+      Object.assign(match, excludeGroupFilter);
+    }
+
     const includeDetails = this.shouldIncludeDetails(query);
     const groupedPipeline = [
       { $match: match },
@@ -733,6 +994,7 @@ class DashboardService {
     const asOfDate = formatDateToYmd();
     const targetDb = String(this.config.branchAgingDbName || "r22a").trim();
     const availableDbs = this.listBranchDbNames ? await this.listBranchDbNames() : [];
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
 
     if (availableDbs.length && !availableDbs.includes(targetDb)) {
       throw createHttpError(`Branch database not found for aging-stocks: ${targetDb}`, 404);
@@ -740,13 +1002,17 @@ class DashboardService {
 
     const selectedDatabases = [targetDb];
 
+    const barangFilter = { stock_on_hand: 1 };
+    if (excludeGroupFilter) {
+      Object.assign(barangFilter, excludeGroupFilter);
+    }
+
     const branches = await Promise.all(
       selectedDatabases.map(async (dbName) => {
         const barangCollection = this.branchBarangCollection(dbName);
         const systemCollection = this.branchSystemCollection(dbName);
         const [docs, systemDoc] = await Promise.all([
-          barangCollection.find(
-            { stock_on_hand: 1 },
+          barangCollection.find(barangFilter,
             {
               projection: {
                 _id: 0,
@@ -880,6 +1146,7 @@ class DashboardService {
         label: bucket.label,
         min_age: bucket.min_age,
         max_age: bucket.max_age,
+        color: bucket.color || null,
         total_doc: Number(bucket.total_doc || 0),
         total_stock_on_hand: Number(bucket.total_stock_on_hand || 0),
         total_berat: round3(bucket.total_berat || 0),
@@ -903,6 +1170,7 @@ class DashboardService {
         label: bucket.label,
         min_age: bucket.min_age,
         max_age: bucket.max_age,
+        color: bucket.color,
         total_doc: 0,
         total_stock_on_hand: 0,
         total_berat: 0,
@@ -938,6 +1206,10 @@ class DashboardService {
         throw createHttpError(`Key aging bucket duplikat: ${bucket.key}`, 400);
       }
       keySet.add(bucket.key);
+
+      if (!bucket.color || !/^#[0-9a-fA-F]{6}$/.test(bucket.color)) {
+        throw createHttpError(`Warna bucket ke-${index + 1} wajib diisi (format hex #rrggbb)`, 400);
+      }
 
       if (!Number.isFinite(bucket.min_age) || bucket.min_age < 0) {
         throw createHttpError(`Min age bucket ke-${index + 1} tidak valid`, 400);
@@ -1159,10 +1431,14 @@ class DashboardService {
     const barangCollection = this.branchBarangCollection(dbName);
     const systemCollection = this.branchSystemCollection(dbName);
     const timeoutMs = Math.max(5000, Number(this.config.branchAgingDbTimeoutMs || 45000));
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    const barangFilter = { stock_on_hand: 1 };
+    if (excludeGroupFilter) {
+      Object.assign(barangFilter, excludeGroupFilter);
+    }
     const [docs, systemDoc] = await Promise.all([
       withTimeout(
-        barangCollection.find(
-          { stock_on_hand: 1 },
+        barangCollection.find(barangFilter,
           {
             maxTimeMS: timeoutMs,
             projection: {
@@ -1299,6 +1575,7 @@ class DashboardService {
         label: bucket.label,
         min_age: bucket.min_age,
         max_age: bucket.max_age,
+        color: bucket.color || null,
         total_doc: bucket.total_doc,
         total_stock_on_hand: bucket.total_stock_on_hand,
         total_berat: round3(bucket.total_berat),
@@ -1577,6 +1854,7 @@ class DashboardService {
     const kodeCabang = query.kode_cabang;
     const dbName = query.db_name ? String(query.db_name).trim() : "";
     const search = String(query.search || query.q || "").trim();
+    const kodeGroup = String(query.kode_group || "").trim();
     const { page, limit, skip } = getPagination(query, { limit: 8 });
 
     if (!jobId || !ObjectId.isValid(String(jobId))) {
@@ -1622,6 +1900,13 @@ class DashboardService {
       ? branchDoc.bucket_dept_summary[bucketKey]
       : null;
     const baseItemMatch = { stock_on_hand: 1 };
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    if (excludeGroupFilter) {
+      Object.assign(baseItemMatch, excludeGroupFilter);
+    }
+    if (kodeGroup) {
+      baseItemMatch.kode_group = kodeGroup;
+    }
     const maxAgeDate = bucketDefinition.max_age === null
       ? null
       : shiftYmdDate(asOfDate, -Number(bucketDefinition.max_age || 0));
@@ -1771,11 +2056,413 @@ class DashboardService {
     };
   }
 
+  async getBrcStockItems(query = {}) {
+    const match = {
+      stock_on_hand: 1,
+      kode_toko: { $regex: "BRC", $options: "i" }
+    };
+
+    const inputDateMatch = buildJsDateMatch(query.start_date, query.end_date);
+    if (inputDateMatch) {
+      match.input_date = inputDateMatch;
+    }
+
+    if (query.kode_group) {
+      match.kode_group = query.kode_group;
+    }
+
+    if (query.kode_dept) {
+      match.kode_dept = query.kode_dept;
+    }
+
+    if (query.kode_toko) {
+      match.kode_toko = query.kode_toko;
+    }
+
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    if (excludeGroupFilter) {
+      Object.assign(match, excludeGroupFilter);
+    }
+
+    const search = String(query.search || query.q || "").trim();
+    if (search) {
+      match.$or = [
+        { kode_barcode: { $regex: escapeRegex(search), $options: "i" } },
+        { nama_barang: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_toko: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_group: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_dept: { $regex: escapeRegex(search), $options: "i" } }
+      ];
+    }
+
+    const { page, limit, skip } = getPagination(query, { limit: 10 });
+
+    const [total, summary, perBaki, items] = await Promise.all([
+      this.pusatBarangCollection().countDocuments(match),
+      this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            total_stock_on_hand: { $sum: { $ifNull: ["$stock_on_hand", 0] } },
+            total_berat: { $sum: { $ifNull: ["$berat", 0] } },
+            total_berat_asli: { $sum: { $ifNull: ["$berat_asli", 0] } },
+            total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
+          }
+        }
+      ]).toArray(),
+      this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: "$kode_toko",
+            total_doc: { $sum: 1 },
+            total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            kode_toko: "$_id",
+            total_doc: 1,
+            total_berat_bruto: { $round: ["$total_berat_bruto", 3] }
+          }
+        },
+        { $sort: { total_berat_bruto: -1, kode_toko: 1 } }
+      ]).toArray(),
+      this.pusatBarangCollection().find(match, {
+        projection: {
+          _id: 0,
+          stock_on_hand: 1,
+          kode_barcode: 1,
+          nama_barang: 1,
+          nama_item: 1,
+          nama: 1,
+          kode_gudang: 1,
+          kode_group: 1,
+          kode_toko: 1,
+          kode_dept: 1,
+          tgl_last_beli: 1,
+          berat: 1,
+          berat_asli: 1,
+          berat_bruto: 1
+        }
+      })
+        .sort({ tgl_last_beli: -1, kode_barcode: 1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray()
+    ]);
+
+    const mappedItems = items.map((item) => ({
+      stock_on_hand: item.stock_on_hand || 0,
+      kode_barcode: item.kode_barcode || null,
+      nama_barang: item.nama_barang || item.nama_item || item.nama || null,
+      kode_gudang: item.kode_gudang || null,
+      kode_group: item.kode_group || null,
+      kode_baki: item.kode_toko || null,
+      kode_dept: item.kode_dept || null,
+      tgl_last_beli: item.tgl_last_beli || null,
+      berat: item.berat || 0,
+      berat_asli: item.berat_asli || 0,
+      berat_bruto: item.berat_bruto || 0
+    }));
+
+    return {
+      data: {
+        total_doc: total,
+        total_stock_on_hand: summary[0]?.total_stock_on_hand || 0,
+        total_berat: round3(summary[0]?.total_berat || 0),
+        total_berat_asli: round3(summary[0]?.total_berat_asli || 0),
+        total_berat_bruto: round3(summary[0]?.total_berat_bruto || 0),
+        per_baki: perBaki,
+        items: mappedItems,
+        pagination: {
+          page,
+          limit,
+          total,
+          total_pages: total > 0 ? Math.ceil(total / limit) : 0,
+          has_more: skip + limit < total
+        }
+      }
+    };
+  }
+
+  async getKomStockItems(query = {}) {
+    const match = {
+      stock_on_hand: 1,
+      kode_toko: { $regex: "KOM", $options: "i" }
+    };
+
+    const inputDateMatch = buildJsDateMatch(query.start_date, query.end_date);
+    if (inputDateMatch) {
+      match.input_date = inputDateMatch;
+    }
+
+    if (query.kode_group) {
+      match.kode_group = query.kode_group;
+    }
+
+    if (query.kode_dept) {
+      match.kode_dept = query.kode_dept;
+    }
+
+    if (query.kode_toko) {
+      match.kode_toko = query.kode_toko;
+    }
+
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    if (excludeGroupFilter) {
+      Object.assign(match, excludeGroupFilter);
+    }
+
+    const search = String(query.search || query.q || "").trim();
+    if (search) {
+      match.$or = [
+        { kode_barcode: { $regex: escapeRegex(search), $options: "i" } },
+        { nama_barang: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_toko: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_group: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_dept: { $regex: escapeRegex(search), $options: "i" } }
+      ];
+    }
+
+    const { page, limit, skip } = getPagination(query, { limit: 10 });
+
+    const [total, summary, perBaki, items] = await Promise.all([
+      this.pusatBarangCollection().countDocuments(match),
+      this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            total_stock_on_hand: { $sum: { $ifNull: ["$stock_on_hand", 0] } },
+            total_berat: { $sum: { $ifNull: ["$berat", 0] } },
+            total_berat_asli: { $sum: { $ifNull: ["$berat_asli", 0] } },
+            total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
+          }
+        }
+      ]).toArray(),
+      this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: "$kode_toko",
+            total_doc: { $sum: 1 },
+            total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            kode_toko: "$_id",
+            total_doc: 1,
+            total_berat_bruto: { $round: ["$total_berat_bruto", 3] }
+          }
+        },
+        { $sort: { total_berat_bruto: -1, kode_toko: 1 } }
+      ]).toArray(),
+      this.pusatBarangCollection().find(match, {
+        projection: {
+          _id: 0,
+          stock_on_hand: 1,
+          kode_barcode: 1,
+          nama_barang: 1,
+          nama_item: 1,
+          nama: 1,
+          kode_gudang: 1,
+          kode_group: 1,
+          kode_toko: 1,
+          kode_dept: 1,
+          tgl_last_beli: 1,
+          berat: 1,
+          berat_asli: 1,
+          berat_bruto: 1
+        }
+      })
+        .sort({ tgl_last_beli: -1, kode_barcode: 1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray()
+    ]);
+
+    const mappedItems = items.map((item) => ({
+      stock_on_hand: item.stock_on_hand || 0,
+      kode_barcode: item.kode_barcode || null,
+      nama_barang: item.nama_barang || item.nama_item || item.nama || null,
+      kode_gudang: item.kode_gudang || null,
+      kode_group: item.kode_group || null,
+      kode_baki: item.kode_toko || null,
+      kode_dept: item.kode_dept || null,
+      tgl_last_beli: item.tgl_last_beli || null,
+      berat: item.berat || 0,
+      berat_asli: item.berat_asli || 0,
+      berat_bruto: item.berat_bruto || 0
+    }));
+
+    return {
+      data: {
+        total_doc: total,
+        total_stock_on_hand: summary[0]?.total_stock_on_hand || 0,
+        total_berat: round3(summary[0]?.total_berat || 0),
+        total_berat_asli: round3(summary[0]?.total_berat_asli || 0),
+        total_berat_bruto: round3(summary[0]?.total_berat_bruto || 0),
+        per_baki: perBaki,
+        items: mappedItems,
+        pagination: {
+          page,
+          limit,
+          total,
+          total_pages: total > 0 ? Math.ceil(total / limit) : 0,
+          has_more: skip + limit < total
+        }
+      }
+    };
+  }
+
+  async getCabangStockItems(query = {}) {
+    const match = {
+      stock_on_hand: 1,
+      kode_gudang: "TOKO",
+      kode_toko: {
+        $not: /KOM|BRC/i
+      }
+    };
+
+    const inputDateMatch = buildJsDateMatch(query.start_date, query.end_date);
+    if (inputDateMatch) {
+      match.input_date = inputDateMatch;
+    }
+
+    if (query.kode_group) {
+      match.kode_group = query.kode_group;
+    }
+
+    if (query.kode_dept) {
+      match.kode_dept = query.kode_dept;
+    }
+
+    if (query.kode_toko) {
+      match.kode_toko = query.kode_toko;
+    }
+
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    if (excludeGroupFilter) {
+      Object.assign(match, excludeGroupFilter);
+    }
+
+    const search = String(query.search || query.q || "").trim();
+    if (search) {
+      match.$or = [
+        { kode_barcode: { $regex: escapeRegex(search), $options: "i" } },
+        { nama_barang: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_toko: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_group: { $regex: escapeRegex(search), $options: "i" } },
+        { kode_dept: { $regex: escapeRegex(search), $options: "i" } }
+      ];
+    }
+
+    const { page, limit, skip } = getPagination(query, { limit: 10 });
+
+    const [total, summary, perBaki, items] = await Promise.all([
+      this.pusatBarangCollection().countDocuments(match),
+      this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            total_stock_on_hand: { $sum: { $ifNull: ["$stock_on_hand", 0] } },
+            total_berat: { $sum: { $ifNull: ["$berat", 0] } },
+            total_berat_asli: { $sum: { $ifNull: ["$berat_asli", 0] } },
+            total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
+          }
+        }
+      ]).toArray(),
+      this.pusatBarangCollection().aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: "$kode_toko",
+            total_doc: { $sum: 1 },
+            total_berat: { $sum: { $ifNull: ["$berat", 0] } },
+            total_berat_bruto: { $sum: { $ifNull: ["$berat_bruto", 0] } }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            kode_toko: "$_id",
+            total_doc: 1,
+            total_berat: { $round: ["$total_berat", 3] },
+            total_berat_bruto: { $round: ["$total_berat_bruto", 3] }
+          }
+        },
+        { $sort: { total_berat: -1, kode_toko: 1 } }
+      ]).toArray(),
+      this.pusatBarangCollection().find(match, {
+        projection: {
+          _id: 0,
+          stock_on_hand: 1,
+          kode_barcode: 1,
+          nama_barang: 1,
+          nama_item: 1,
+          nama: 1,
+          kode_gudang: 1,
+          kode_group: 1,
+          kode_toko: 1,
+          kode_dept: 1,
+          tgl_last_beli: 1,
+          berat: 1,
+          berat_asli: 1,
+          berat_bruto: 1
+        }
+      })
+        .sort({ tgl_last_beli: -1, kode_barcode: 1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray()
+    ]);
+
+    const mappedItems = items.map((item) => ({
+      stock_on_hand: item.stock_on_hand || 0,
+      kode_barcode: item.kode_barcode || null,
+      nama_barang: item.nama_barang || item.nama_item || item.nama || null,
+      kode_gudang: item.kode_gudang || null,
+      kode_group: item.kode_group || null,
+      kode_baki: item.kode_toko || null,
+      kode_dept: item.kode_dept || null,
+      tgl_last_beli: item.tgl_last_beli || null,
+      berat: item.berat || 0,
+      berat_asli: item.berat_asli || 0,
+      berat_bruto: item.berat_bruto || 0
+    }));
+
+    return {
+      data: {
+        total_doc: total,
+        total_stock_on_hand: summary[0]?.total_stock_on_hand || 0,
+        total_berat: round3(summary[0]?.total_berat || 0),
+        total_berat_asli: round3(summary[0]?.total_berat_asli || 0),
+        total_berat_bruto: round3(summary[0]?.total_berat_bruto || 0),
+        per_baki: perBaki,
+        items: mappedItems,
+        pagination: {
+          page,
+          limit,
+          total,
+          total_pages: total > 0 ? Math.ceil(total / limit) : 0,
+          has_more: skip + limit < total
+        }
+      }
+    };
+  }
+
   async getBarangByBucket(query) {
     const match = {
       stock_on_hand: 1
     };
     const includeDetails = this.shouldIncludeDetails(query);
+    const excludeGroupFilter = await this.buildExcludeGroupFilter();
 
     const inputDateMatch = buildJsDateMatch(query.start_date, query.end_date);
     if (inputDateMatch) {
@@ -1788,6 +2475,10 @@ class DashboardService {
 
     if (query.bucket === "BRC") {
       match.kode_toko = { $regex: "BRC", $options: "i" };
+    }
+
+    if (excludeGroupFilter) {
+      Object.assign(match, excludeGroupFilter);
     }
 
     if (query.kode_group) {
