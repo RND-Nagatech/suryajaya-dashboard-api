@@ -75,6 +75,7 @@ class DashboardService {
   constructor(dbs, config) {
     this.grosirDb = dbs.grosirDb;
     this.pusatDb = dbs.pusatDb;
+    this.dashboardDb = dbs.dashboardDb || null;
     this.getBranchDb = dbs.getBranchDb;
     this.listBranchDbNames = dbs.listBranchDbNames;
     this.config = config;
@@ -177,24 +178,89 @@ class DashboardService {
     }
 
     const { bcrypt, signToken } = require("./auth");
-    const user = await this.usersCollection().findOne({ _id: username });
-    if (!user) {
+
+    // Source 1: Check dashboard_users first
+    const localUser = await this.usersCollection().findOne({ _id: username });
+    if (localUser) {
+      const valid = await bcrypt.compare(password, localUser.password);
+      if (!valid) {
+        throw createHttpError("Username atau password salah", 401);
+      }
+      const token = signToken({ username: localUser._id, level: localUser.level });
+      return {
+        data: {
+          token,
+          user: { username: localUser._id, level: localUser.level || "operator" }
+        }
+      };
+    }
+
+    // Source 2: Check db_dashboard.tm_user
+    if (!this.dashboardDb) {
       throw createHttpError("Username atau password salah", 401);
     }
 
-    const valid = await bcrypt.compare(password, user.password);
+    const { encryptascii, decryptascii } = require("./encryptor");
+    const tmUser = await this.dashboardDb.collection("tm_user").findOne({ user_id: username });
+    if (!tmUser) {
+      throw createHttpError("Username atau password salah", 401);
+    }
+
+    if (!tmUser.status_active) {
+      throw createHttpError("Akun tidak aktif", 403);
+    }
+
+    const valid = await bcrypt.compare(password, tmUser.password);
     if (!valid) {
       throw createHttpError("Username atau password salah", 401);
     }
 
-    const token = signToken({ username: user._id, level: user.level });
+    // Lookup chain: tm_user.kode_area → encrypt → tm_area_manager.user_id → tm_toko.kode_toko → db_name → decrypt
+    const encryptedKodeArea = encryptascii(String(tmUser.kode_area || "").trim());
+    const areaManagers = await this.dashboardDb.collection("tm_area_manager")
+      .find({ user_id: encryptedKodeArea }, { projection: { _id: 0, kode_toko: 1 } })
+      .toArray();
+
+    const kodeTokoList = [...new Set(areaManagers.map((am) => am.kode_toko).filter(Boolean))];
+
+    let branchDatabases = [];
+    if (kodeTokoList.length > 0) {
+      const tokos = await this.dashboardDb.collection("tm_toko")
+        .find({ kode_toko: { $in: kodeTokoList } }, { projection: { _id: 0, db_name: 1 } })
+        .toArray();
+
+      branchDatabases = [...new Set(
+        tokos
+          .map((t) => decryptascii(String(t.db_name || "").trim()))
+          .filter(Boolean)
+      )].sort();
+    }
+
+    // Upsert to dashboard_users with branch_databases
+    const level = tmUser.level === "AREA MANAGER" ? "superuser" : "operator";
+    const now = new Date().toISOString();
+    await this.usersCollection().updateOne(
+      { _id: username },
+      {
+        $set: {
+          level,
+          branch_databases: branchDatabases,
+          source: "db_dashboard",
+          updated_at: now
+        },
+        $setOnInsert: {
+          password: tmUser.password,
+          created_at: now
+        }
+      },
+      { upsert: true }
+    );
+
+    const token = signToken({ username, level });
     return {
       data: {
         token,
-        user: {
-          username: user._id,
-          level: user.level || "operator"
-        }
+        user: { username, level, branch_databases: branchDatabases }
       }
     };
   }
