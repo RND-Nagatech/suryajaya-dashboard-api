@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { GlassCard } from "./GlassCard";
 import { useAgingStocks } from "../hooks/useAgingStocks";
-import { fetchGroups, verifySuperuserPassword } from "../lib/api";
+import { fetchExcludeGroupSettings, fetchGroups, verifySuperuserPassword } from "../lib/api";
 import {
   formatCompactNumber,
   formatInteger,
@@ -619,9 +619,14 @@ export function AgingPage({ enabled, user }) {
 
   useEffect(() => {
     if (!enabled) return;
-    fetchGroups()
-      .then((res) => setGroupList(Array.isArray(res?.data) ? res.data : []))
-      .catch(() => setGroupList([]));
+    Promise.all([
+      fetchGroups().catch(() => ({ data: [] })),
+      fetchExcludeGroupSettings().catch(() => ({ data: { excluded_groups: [] } }))
+    ]).then(([groupsRes, excludeRes]) => {
+      const allGroups = Array.isArray(groupsRes?.data) ? groupsRes.data : [];
+      const excluded = Array.isArray(excludeRes?.data?.excluded_groups) ? excludeRes.data.excluded_groups : [];
+      setGroupList(allGroups.filter((g) => !excluded.includes(g)));
+    }).catch(() => setGroupList([]));
   }, [enabled]);
 
   const handleToggleWeight = () => {

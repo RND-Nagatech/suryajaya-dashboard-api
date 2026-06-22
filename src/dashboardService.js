@@ -132,6 +132,69 @@ class DashboardService {
     return { kode_group: { $nin: excluded } };
   }
 
+  /**
+   * Resolve the effective list of branch databases for a user.
+   * If userBranchDatabases is non-empty, returns only those that exist
+   * in available databases. If empty/null/undefined, returns all available.
+   */
+  async getEffectiveBranchDatabases(userBranchDatabases) {
+    const allDbs = this.listBranchDbNames ? await this.listBranchDbNames() : [];
+    const normalizedAll = [...new Set((allDbs || []).map((item) => String(item || "").trim()).filter(Boolean))].sort();
+
+    if (!Array.isArray(userBranchDatabases) || !userBranchDatabases.length) {
+      return normalizedAll;
+    }
+
+    const normalizedUser = [...new Set(userBranchDatabases.map((item) => String(item || "").trim()).filter(Boolean))].sort();
+    return normalizedUser.filter((db) => normalizedAll.includes(db));
+  }
+
+  /**
+   * Build a mapping from branch database name → kode_toko, with in-memory cache.
+   * Returns: { [dbName]: kode_toko, ... }
+   */
+  async getBranchKodeTokoMapping() {
+    if (this._branchKodeTokoCache) return this._branchKodeTokoCache;
+
+    const allDbs = this.listBranchDbNames ? await this.listBranchDbNames() : [];
+    const mapping = Object.create(null);
+
+    const results = await Promise.allSettled(
+      allDbs.map((dbName) =>
+        this.branchSystemCollection(dbName)
+          .findOne({}, { projection: { _id: 0, kode_toko: 1 }, maxTimeMS: 5000 })
+          .then((doc) => ({ dbName, kode_toko: doc?.kode_toko ? String(doc.kode_toko).trim() : null }))
+      )
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value?.kode_toko) {
+        mapping[result.value.dbName] = result.value.kode_toko;
+      }
+    }
+
+    this._branchKodeTokoCache = mapping;
+    return mapping;
+  }
+
+  /**
+   * Resolve the list of kode_toko values the user is allowed to access.
+   * If userBranchDatabases is empty/null → returns null (no filter).
+   * Otherwise returns the intersection of mapped kode_toko values.
+   */
+  async getAllowedKodeTokoList(userBranchDatabases) {
+    if (!Array.isArray(userBranchDatabases) || !userBranchDatabases.length) {
+      return null;
+    }
+
+    const mapping = await this.getBranchKodeTokoMapping();
+    const kodeTokoList = userBranchDatabases
+      .map((db) => mapping[String(db || "").trim()] || null)
+      .filter(Boolean);
+
+    return kodeTokoList.length ? kodeTokoList : null;
+  }
+
   async listGroups() {
     const docs = await this.groupMasterCollection().find(
       {},
@@ -215,17 +278,20 @@ class DashboardService {
       throw createHttpError("Username atau password salah", 401);
     }
 
-    // Lookup chain: tm_user.kode_area → encrypt → tm_area_manager.user_id → tm_toko.kode_toko → db_name → decrypt
-    const encryptedKodeArea = encryptascii(String(tmUser.kode_area || "").trim());
+    // Lookup chain: tm_user.kode_area → decrypt → tm_area_manager.user_id → tm_toko.kode_toko → db_name → decrypt
+    const decryptedKodeArea = decryptascii(String(tmUser.kode_area || "").trim());
+    console.log("DECRYPTED KODE AREA", decryptedKodeArea);
+    
     const areaManagers = await this.dashboardDb.collection("tm_area_manager")
-      .find({ user_id: encryptedKodeArea }, { projection: { _id: 0, kode_toko: 1 } })
+      .find({ user_id: decryptedKodeArea }, { projection: { _id: 0, kode_toko: 1 } })
       .toArray();
-
+    console.log("LIST AREA MANAGER", areaManagers);
+    
     const kodeTokoList = [...new Set(areaManagers.map((am) => am.kode_toko).filter(Boolean))];
 
     let branchDatabases = [];
     if (kodeTokoList.length > 0) {
-      const tokos = await this.dashboardDb.collection("tm_toko")
+      const tokos = await this.dashboardDb.collection("tm_cabang")
         .find({ kode_toko: { $in: kodeTokoList } }, { projection: { _id: 0, db_name: 1 } })
         .toArray();
 
@@ -452,9 +518,16 @@ class DashboardService {
 
   async getOverview(query) {
     const excludeGroupFilter = await this.buildExcludeGroupFilter();
+    const allowedKodeToko = await this.getAllowedKodeTokoList(query.branch_databases);
     const komMatch = { stock_on_hand: 1, kode_toko: { $regex: "KOM", $options: "i" } };
     const brcMatch = { stock_on_hand: 1, kode_toko: { $regex: "BRC", $options: "i" } };
-    const cabangMatch = { stock_on_hand: 1, kode_gudang: "TOKO", kode_toko: { $not: /KOM|BRC/i } };
+    const cabangMatch = {
+      stock_on_hand: 1,
+      kode_gudang: "TOKO",
+      kode_toko: allowedKodeToko
+        ? { $not: /KOM|BRC/i, $in: allowedKodeToko }
+        : { $not: /KOM|BRC/i }
+    };
     if (excludeGroupFilter) {
       Object.assign(komMatch, excludeGroupFilter);
       Object.assign(brcMatch, excludeGroupFilter);
@@ -959,6 +1032,8 @@ class DashboardService {
   }
 
   async getCabangStocks(query) {
+    const allowedKodeToko = await this.getAllowedKodeTokoList(query.branch_databases);
+
     const match = {
       stock_on_hand: 1,
       kode_gudang: "TOKO",
@@ -972,7 +1047,9 @@ class DashboardService {
       match.input_date = inputDateMatch;
     }
 
-    if (query.kode_toko) {
+    if (allowedKodeToko) {
+      match.kode_toko = { $not: /KOM|BRC/i, $in: allowedKodeToko };
+    } else if (query.kode_toko) {
       match.kode_toko = query.kode_toko;
     }
 
@@ -1312,10 +1389,10 @@ class DashboardService {
     return ordered;
   }
 
-  async getCabangAgingSettings() {
+  async getCabangAgingSettings(userBranchDatabases) {
     const [doc, availableDbs] = await Promise.all([
       this.agingSettingsCollection().findOne({ _id: "default" }),
-      this.listBranchDbNames ? this.listBranchDbNames() : Promise.resolve([])
+      this.getEffectiveBranchDatabases(userBranchDatabases)
     ]);
     const normalizedAvailableDbs = [...new Set((availableDbs || []).map((item) => String(item || "").trim()).filter(Boolean))].sort();
 
@@ -1380,7 +1457,7 @@ class DashboardService {
     }
 
     const [settings, latestJob] = await Promise.all([
-      this.getCabangAgingSettings(),
+      this.getCabangAgingSettings(query.branch_databases),
       this.agingJobsCollection().findOne({}, { sort: { created_at: -1 } })
     ]);
 
@@ -1393,7 +1470,7 @@ class DashboardService {
   }
 
   async createCabangAgingJob(query = {}) {
-    const settings = await this.getCabangAgingSettings();
+    const settings = await this.getCabangAgingSettings(query.branch_databases);
     const availableDbs = this.listBranchDbNames ? await this.listBranchDbNames() : [];
     const settingsExcluded = Array.isArray(settings?.data?.excluded_databases) ? settings.data.excluded_databases : [];
     const mergedExcluded = [...new Set([...(this.config.excludedBranchDbNames || []), ...settingsExcluded])];
@@ -1403,6 +1480,17 @@ class DashboardService {
       availableDbs,
       excludedDbs: mergedExcluded
     });
+
+    // Apply user branch_databases restriction
+    if (Array.isArray(query.branch_databases) && query.branch_databases.length) {
+      const userDbSet = new Set(query.branch_databases.map((s) => String(s || "").trim()).filter(Boolean));
+      const filtered = selectedDatabases.filter((db) => userDbSet.has(db));
+      if (!filtered.length) {
+        throw createHttpError("Anda tidak memiliki akses ke database cabang manapun", 403);
+      }
+      selectedDatabases.length = 0;
+      selectedDatabases.push(...filtered);
+    }
 
     if (!selectedDatabases.length) {
       throw createHttpError("Tidak ada database cabang yang bisa diproses", 400);

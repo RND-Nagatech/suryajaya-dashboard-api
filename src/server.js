@@ -62,7 +62,7 @@ async function bootstrap() {
   const cache30 = cacheMiddlewareShort();
   app.get("/api/v1/dashboard/overview", cache30, async (req, res, next) => {
     try {
-      res.json(await service.getOverview(req.query));
+      res.json(await service.getOverview({ ...req.query, branch_databases: req.user?.branch_databases }));
     } catch (error) {
       next(error);
     }
@@ -110,7 +110,7 @@ async function bootstrap() {
 
   app.get("/api/v1/dashboard/pusat/cabang-stocks", cache30, async (req, res, next) => {
     try {
-      res.json(await service.getCabangStocks(req.query));
+      res.json(await service.getCabangStocks({ ...req.query, branch_databases: req.user?.branch_databases }));
     } catch (error) {
       next(error);
     }
@@ -128,7 +128,7 @@ async function bootstrap() {
 
   app.get("/api/v1/dashboard/cabang/aging-stocks/settings", cache5m, async (req, res, next) => {
     try {
-      res.json(await service.getCabangAgingSettings());
+      res.json(await service.getCabangAgingSettings(req.user?.branch_databases));
     } catch (error) {
       next(error);
     }
@@ -191,7 +191,7 @@ async function bootstrap() {
 
   app.post("/api/v1/dashboard/cabang/aging-stocks/jobs", async (req, res, next) => {
     try {
-      const result = await service.createCabangAgingJob(req.body || req.query);
+      const result = await service.createCabangAgingJob({ ...(req.body || req.query), branch_databases: req.user?.branch_databases });
       await invalidateKeys("cache:/api/v1/dashboard/cabang/aging-stocks*");
       res.status(202).json(result);
     } catch (error) {

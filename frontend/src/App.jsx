@@ -83,7 +83,7 @@ function GlowBadge({ label, value, tone = "glass" }) {
   );
 }
 
-function FocusTopStatusBar({ apiStatus, stale, error, lastUpdated }) {
+function FocusTopStatusBar({ apiStatus, stale, error, lastUpdated, isRefreshing, onRefresh }) {
   return (
     <div className="focus-top-status">
       <div className="focus-top-pills">
@@ -100,6 +100,17 @@ function FocusTopStatusBar({ apiStatus, stale, error, lastUpdated }) {
       <div className="focus-top-meta">
         <span>{error || "Monitoring grosir, transfer, dan stok pusat aktif."}</span>
         <strong>Sync {formatTimestamp(lastUpdated)}</strong>
+        {onRefresh && (
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            style={{ marginLeft: "0.75rem" }}
+          >
+            {isRefreshing ? "Fetch..." : "Fetch Ulang"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1134,7 +1145,7 @@ export default function App() {
   const handleLogin = (loggedInUser) => setUser(loggedInUser);
   const handleLogout = () => { clearToken(); setUser(null); };
 
-  const { data, error, loading, isRefreshing, lastUpdated, stale } = useDashboardData(authenticated ? activePage : null);
+  const { data, error, loading, isRefreshing, lastUpdated, stale, refresh } = useDashboardData(authenticated ? activePage : null);
 
   const overview = data?.overviewMetrics;
 
@@ -1240,6 +1251,8 @@ export default function App() {
               stale={stale}
               error={error}
               lastUpdated={lastUpdated}
+              isRefreshing={isRefreshing}
+              onRefresh={refresh}
             />
           ) : null}
 

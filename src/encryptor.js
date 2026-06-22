@@ -1,4 +1,4 @@
-const ENC_KEY = "B3r4sput1h";
+const ENC_KEY = "b3r4sput1h";
 
 function encryptascii(str) {
   if (!str) return "";

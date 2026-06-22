@@ -72,7 +72,7 @@ function createRoutes(service) {
 
   router.get("/dashboard/overview", async (req, res, next) => {
     try {
-      res.json(await service.getOverview(req.query));
+      res.json(await service.getOverview({ ...req.query, branch_databases: req.user?.branch_databases }));
     } catch (error) {
       next(error);
     }
@@ -136,7 +136,7 @@ function createRoutes(service) {
 
   router.get("/dashboard/pusat/cabang-stocks", async (req, res, next) => {
     try {
-      res.json(await service.getCabangStocks(req.query));
+      res.json(await service.getCabangStocks({ ...req.query, branch_databases: req.user?.branch_databases }));
     } catch (error) {
       next(error);
     }
@@ -152,7 +152,7 @@ function createRoutes(service) {
 
   router.get("/dashboard/cabang/aging-stocks", async (req, res, next) => {
     try {
-      res.json(await service.getCabangAgingStatus(req.query));
+      res.json(await service.getCabangAgingStatus({ ...req.query, branch_databases: req.user?.branch_databases }));
     } catch (error) {
       next(error);
     }
@@ -176,7 +176,7 @@ function createRoutes(service) {
 
   router.get("/dashboard/cabang/aging-stocks/settings", async (req, res, next) => {
     try {
-      res.json(await service.getCabangAgingSettings());
+      res.json(await service.getCabangAgingSettings(req.user?.branch_databases));
     } catch (error) {
       next(error);
     }
@@ -192,7 +192,7 @@ function createRoutes(service) {
 
   router.post("/dashboard/cabang/aging-stocks/jobs", async (req, res, next) => {
     try {
-      res.status(202).json(await service.createCabangAgingJob(req.body || req.query));
+      res.status(202).json(await service.createCabangAgingJob({ ...(req.body || req.query), branch_databases: req.user?.branch_databases }));
     } catch (error) {
       next(error);
     }

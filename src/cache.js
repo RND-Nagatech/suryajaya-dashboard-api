@@ -46,7 +46,9 @@ function buildKey(req) {
   const queryString = params.toString();
   const path = req.originalUrl || req.path || req.url;
   const base = path.split("?")[0];
-  return `cache:${base}${queryString ? "?" + queryString : ""}`;
+  // Include user identity so different users don't share cached data
+  const userSegment = req.user?._id ? `:user=${req.user._id}` : "";
+  return `cache:${userSegment}:${base}${queryString ? "?" + queryString : ""}`;
 }
 
 async function getCache(key) {

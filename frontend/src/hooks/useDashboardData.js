@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { fetchDashboardBundle, fetchFocusBundle } from "../lib/api";
 
 const DEFAULT_REFRESH_INTERVAL = Number(import.meta.env.VITE_REFRESH_INTERVAL_MS || 45000);
@@ -12,6 +12,7 @@ export function useDashboardData(activePage) {
   const [stale, setStale] = useState(false);
   const lastSuccessRef = useRef(0);
   const hasDashboardDataRef = useRef(false);
+  const loadDataRef = useRef(null);
 
   useEffect(() => {
     if (!activePage) return;
@@ -67,6 +68,8 @@ export function useDashboardData(activePage) {
       }
     };
 
+    loadDataRef.current = loadData;
+
     const initialMode = !data || (activePage === "dashboard" && !hasDashboardDataRef.current) ? "initial" : "refresh";
     loadData(initialMode);
     const refreshInterval = window.setInterval(() => loadData("refresh"), DEFAULT_REFRESH_INTERVAL);
@@ -85,12 +88,19 @@ export function useDashboardData(activePage) {
     };
   }, [activePage]);
 
+  const refresh = useCallback(() => {
+    if (loadDataRef.current) {
+      loadDataRef.current("refresh");
+    }
+  }, []);
+
   return {
     data,
     error,
     loading,
     isRefreshing,
     lastUpdated,
-    stale
+    stale,
+    refresh
   };
 }

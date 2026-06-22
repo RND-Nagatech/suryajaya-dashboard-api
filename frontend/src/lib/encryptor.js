@@ -1,6 +1,6 @@
 export class Encryptor {
     constructor(encKey, keyGen) {
-        this.encKeyDec = "B3r4sput1h";
+        this.encKeyDec = "b3r4sput1h";
     }
     encryptascii(str) {
         // const key = coreKey.decryptEncKey(this.encKey);
